@@ -1,1 +1,479 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#4f46e5">
+<title>Habit Tracker</title>
+<style>
+:root{--bg:#f6f7fb;--card:#fff;--text:#1d2433;--muted:#7a8397;--line:#e6e9f0;--accent:#4f46e5;--ok:#16a34a;--bad:#dc2626;--empty:#e9ecf3}
+@media(prefers-color-scheme:dark){:root{--bg:#0f1320;--card:#181d2e;--text:#e8ebf5;--muted:#8d97b0;--line:#262d44;--accent:#818cf8;--empty:#232a40}}
+*{box-sizing:border-box}
+body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--text);padding-bottom:calc(84px + env(safe-area-inset-bottom))}
+header{padding:18px 16px 6px;max-width:720px;margin:auto}
+h1{font-size:22px;margin:0}
+main{max-width:720px;margin:auto;padding:8px 16px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;margin:10px 0}
+.row{display:flex;align-items:center;gap:10px}
+.grow{flex:1;min-width:0}
+.muted{color:var(--muted);font-size:13px}
+.icon{font-size:26px;width:44px;height:44px;border-radius:12px;display:grid;place-items:center;flex:none}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer;border:1px solid var(--line);background:var(--card);border-radius:10px;padding:8px 12px}
+button:disabled{opacity:.5;cursor:default}
+button.primary{background:var(--accent);color:#fff;border-color:var(--accent)}
+button.danger{color:var(--bad)}
+input,select,textarea{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:8px 10px;width:100%}
+textarea{resize:vertical;margin-top:10px;padding:10px}
+.check{width:40px;height:40px;border-radius:50%;border:2px solid var(--line);font-size:20px;display:grid;place-items:center;padding:0;flex:none}
+.check.done{background:var(--ok);border-color:var(--ok);color:#fff}
+nav{position:fixed;bottom:0;left:0;right:0;background:var(--card);border-top:1px solid var(--line);display:none;justify-content:center;padding-bottom:env(safe-area-inset-bottom)}
+nav button{border:0;border-radius:0;flex:1;max-width:180px;padding:14px 2px;background:none;color:var(--muted);font-size:12.5px}
+nav button.on{color:var(--accent);font-weight:600}
+.datebar{display:flex;align-items:center;justify-content:space-between;margin:8px 0}
+.bar{height:8px;background:var(--empty);border-radius:6px;overflow:hidden;margin-top:8px}
+.bar>i{display:block;height:100%;background:var(--accent)}
+.heat{display:grid;grid-auto-flow:column;grid-template-rows:repeat(7,12px);gap:3px;overflow-x:auto;padding-bottom:4px}
+.heat i{width:12px;height:12px;border-radius:3px;background:var(--empty)}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:10px 0}
+.stat{text-align:center}.stat b{display:block;font-size:20px}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.three{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
+.field{margin:8px 0}.field label{display:block;font-size:12px;color:var(--muted);margin-bottom:4px}
+.hidden{display:none}
+.progress{font-size:34px;font-weight:700}
+.sleepin{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
+.err{color:var(--bad);font-size:13px;min-height:18px;margin:6px 0}
+.warn{background:#fef3c7;color:#92400e;padding:8px 10px;border-radius:10px;font-size:13px;margin-bottom:10px}
+.pill{font-size:12px;padding:3px 9px;border-radius:99px;background:var(--empty);color:var(--muted);white-space:nowrap}
+.pill.saved{color:var(--ok)}.pill.offline{color:var(--bad)}
+.link{background:none;border:0;color:var(--accent);padding:6px}
+#toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(96px + env(safe-area-inset-bottom));background:#1d2433;color:#fff;padding:10px 16px;border-radius:12px;font-size:14px;opacity:0;transition:opacity .25s;pointer-events:none;max-width:90%;text-align:center;z-index:9}
+.user{padding:10px 0;border-top:1px solid var(--line)}
+</style>
+</head>
+<body>
+<header><div class="row"><h1 id="title" class="grow">Habit Tracker</h1><span id="sync" class="pill"></span></div></header>
+<main id="app"></main>
+<nav id="nav">
+  <button data-tab="today">✅<br>Today</button>
+  <button data-tab="stats">📊<br>Stats</button>
+  <button data-tab="habits">⚙️<br>Habits</button>
+  <button data-tab="account">👤<br>Account</button>
+</nav>
+<div id="toast"></div>
 
+<script>
+/* ───────── CONFIG ───────── */
+const API_URL='PASTE_YOUR_WEB_APP_URL_HERE';   // the /exec URL from Apps Script → Deploy → Web app
+
+/* ───────── constants & state ───────── */
+const SESSION_KEY='ht2-session', OLD_KEY='habit-tracker-v1';
+const COLORS=['#4f46e5','#0ea5e9','#16a34a','#f59e0b','#ef4444','#a855f7','#14b8a6','#ec4899'];
+const PRESETS=[
+ {name:'Sleep',icon:'😴',type:'sleep',target:7,color:COLORS[1]},
+ {name:'Reading',icon:'📖',type:'count',unit:'pages',target:20,color:COLORS[3]},
+ {name:'Exercise',icon:'🏋️',type:'check',color:COLORS[2]},
+ {name:'Brahmacharya',icon:'🔥',type:'check',color:COLORS[4]},
+ {name:'Meditation',icon:'🧘',type:'count',unit:'min',target:10,color:COLORS[5]},
+ {name:'Water',icon:'💧',type:'count',unit:'glasses',target:8,color:COLORS[6]},
+ {name:'Satsanga',icon:'🕉️',type:'count',unit:'min',target:20,color:COLORS[7]},
+ {name:'Study',icon:'🎓',type:'count',unit:'hours',target:3,step:0.5,color:COLORS[1]},
+ {name:'Diary writing',icon:'📔',type:'diary',color:COLORS[0]},
+];
+class NetErr extends Error{}
+let session=null, S={habits:[],logs:{}}, Q=[], tab='today', date=today(), editing=null, draft=null;
+let authMode='login', loading=false, adminUsers=null, syncState='saved', flushP=null, dTimer=null, toastTimer=null;
+
+/* ───────── tiny helpers ───────── */
+const $=id=>document.getElementById(id);
+function uid(){return (Math.random().toString(36)+'0000000').slice(2,9)}
+function esc(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+function fmtN(n){return String(Math.round(n*100)/100)}
+function fmt(d){const z=n=>String(n).padStart(2,'0');return d.getFullYear()+'-'+z(d.getMonth()+1)+'-'+z(d.getDate())}
+function today(){return fmt(new Date())}
+function parse(s){const[y,m,d]=s.split('-').map(Number);return new Date(y,m-1,d)}
+function shift(s,n){const d=parse(s);d.setDate(d.getDate()+n);return fmt(d)}
+function toast(msg){const el=$('toast');el.textContent=msg;el.style.opacity=1;clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.style.opacity=0,3500)}
+const lsGet=k=>{try{return JSON.parse(localStorage.getItem(k))}catch(e){return null}};
+const lsSet=(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}};
+const lsDel=k=>{try{localStorage.removeItem(k)}catch(e){}};
+const cacheKey=()=>'ht2-cache-'+session.userId, queueKey=()=>'ht2-queue-'+session.userId;
+function saveLocal(){if(!session)return;lsSet(cacheKey(),S);lsSet(queueKey(),Q)}
+function loadLocal(){const c=lsGet(cacheKey());S=c&&c.habits?c:{habits:[],logs:{}};Q=lsGet(queueKey())||[];loading=!(c&&c.habits)}
+function buildLogs(arr){const l={};for(const e of arr){(l[e.d]=l[e.d]||{})[e.h]=e.v}return l}
+function hasOld(){const d=lsGet(OLD_KEY);return d&&d.habits&&d.habits.length?d:null}
+
+/* ───────── API + sync queue ───────── */
+async function api(action,payload,auth){
+  const body=Object.assign({action},payload||{});
+  if(auth!==false&&session)body.token=session.token;
+  let j;
+  try{
+    const r=await fetch(API_URL,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify(body)});
+    j=await r.json();
+  }catch(e){throw new NetErr('Network error — check your connection')}
+  if(!j.ok){
+    if(j.error==='AUTH'){logout(true);throw new Error('Session expired — please sign in again')}
+    throw new Error(j.error||'Server error');
+  }
+  return j.data;
+}
+function setSync(s){syncState=s;paintSync()}
+function paintSync(){
+  const el=$('sync');if(!el)return;
+  el.textContent=session?{saved:'✓ Synced',saving:'⟳ Saving…',offline:'⚠ Offline'}[syncState]:'';
+  el.className='pill '+(session?syncState:'');
+}
+function enqueue(action,payload){
+  if(action==='setLog'){ // keep only the latest write per day+habit (never touch the item currently in flight)
+    const start=flushP?1:0;
+    Q=Q.filter((it,i)=>i<start||!(it.action==='setLog'&&it.payload.habitId===payload.habitId&&it.payload.date===payload.date));
+  }
+  Q.push({action,payload});saveLocal();setSync('saving');flush();
+}
+function flush(){
+  if(!session)return Promise.resolve();
+  if(!flushP)flushP=runFlush().finally(()=>{flushP=null});
+  return flushP;
+}
+async function runFlush(){
+  {
+    while(Q.length&&session){
+      const it=Q[0];
+      try{await api(it.action,it.payload);Q.shift();saveLocal()}
+      catch(e){
+        if(!session)return;
+        if(e instanceof NetErr){setSync('offline');setTimeout(flush,15000);return}
+        Q.shift();saveLocal();toast('Not saved: '+e.message);
+      }
+    }
+    if(session)setSync('saved');
+  }
+}
+async function pull(quiet){
+  if(Q.length||!session){if(session&&loading){loading=false;render()}return}
+  if(quiet){const a=document.activeElement;if(a&&/^(TEXTAREA|INPUT|SELECT)$/.test(a.tagName)&&$('app').contains(a))return}
+  try{
+    const d=await api('getData');
+    if(Q.length||!session)return;
+    S={habits:d.habits,logs:buildLogs(d.logs)};
+    session.name=d.user.name;session.role=d.user.role;lsSet(SESSION_KEY,session);
+    loading=false;saveLocal();setSync('saved');render();
+  }catch(e){
+    if(e instanceof NetErr)setSync('offline');
+    loading=false;if(session)render();
+  }
+}
+window.addEventListener('online',()=>{flush().then(()=>pull(true))});
+document.addEventListener('visibilitychange',()=>{if(!document.hidden&&session)pull(true)});
+
+/* ───────── auth ───────── */
+function vAuth(){
+  const su=authMode==='signup';
+  return `<div class="card" style="margin-top:28px">
+  <div style="text-align:center;font-size:44px">🌱</div>
+  <h2 style="text-align:center;margin:6px 0 2px">Habit Tracker</h2>
+  <div class="muted" style="text-align:center;margin-bottom:14px">${su?'Create your account':'Sign in to continue'}</div>
+  ${API_URL.indexOf('PASTE')===0?'<div class="warn">Backend not connected yet — set API_URL at the top of index.html.</div>':''}
+  <form onsubmit="submitAuth();return false">
+    <div class="field"><label>User ID</label><input id="a_id" autocapitalize="none" autocorrect="off" autocomplete="username" placeholder="e.g. ankan"></div>
+    ${su?'<div class="field"><label>Your name</label><input id="a_name" autocomplete="name"></div>':''}
+    <div class="field"><label>Password</label><input id="a_pw" type="password" autocomplete="${su?'new-password':'current-password'}"></div>
+    <div id="a_err" class="err"></div>
+    <button id="a_btn" type="submit" class="primary" style="width:100%">${su?'Create account':'Sign in'}</button>
+  </form>
+  <div style="text-align:center;margin-top:10px"><button class="link" onclick="authMode='${su?'login':'signup'}';render()">${su?'Have an account? Sign in':'New here? Create an account'}</button></div></div>`;
+}
+async function submitAuth(){
+  const btn=$('a_btn'),err=$('a_err');err.textContent='';
+  const id=$('a_id').value.trim().toLowerCase(),pw=$('a_pw').value,name=authMode==='signup'?$('a_name').value.trim():'';
+  if(API_URL.indexOf('PASTE')===0){err.textContent='Set API_URL in index.html first.';return}
+  if(!id||!pw){err.textContent='Enter your ID and password';return}
+  const label=btn.textContent;btn.disabled=true;btn.textContent='Please wait…';
+  try{
+    const d=await api(authMode,{userId:id,password:pw,name:name},false);
+    session=Object.assign({},d.user,{token:d.token});lsSet(SESSION_KEY,session);
+    await startApp(authMode==='signup');
+  }catch(e){err.textContent=e.message||'Something went wrong';btn.disabled=false;btn.textContent=label}
+}
+async function startApp(fresh){
+  loadLocal();$('nav').style.display='flex';tab='today';date=today();adminUsers=null;render();
+  if(fresh&&!S.habits.length&&!Q.length)await afterSignup();
+  await flush();
+  await pull();
+}
+async function afterSignup(){
+  if(hasOld()&&confirm('Found habit data from the earlier single-device version on this phone/computer.\nImport it into your new account?')){
+    try{await importOld();return}catch(e){toast('Import failed: '+e.message)}
+  }
+  S.habits=PRESETS.map(p=>Object.assign({id:uid(),archived:false,step:1},p));
+  S.habits.forEach(h=>enqueue('saveHabit',{habit:h}));
+  loading=false;render();
+}
+async function importOld(){const d=hasOld();if(d)return api('importData',{habits:d.habits,logs:d.logs})}
+function logout(forced){
+  if(!forced&&Q.length&&!confirm('Some changes have not synced yet. Log out anyway?'))return;
+  if(!forced&&session){lsDel(cacheKey());lsDel(queueKey())}
+  session=null;lsDel(SESSION_KEY);S={habits:[],logs:{}};Q=[];adminUsers=null;
+  $('nav').style.display='none';authMode='login';render();
+}
+
+/* ───────── habit logic ───────── */
+const active=()=>S.habits.filter(h=>!h.archived);
+function val(h,d){return (S.logs[d]||{})[h.id]}
+function setVal(h,d,v){
+  const empty=(v===undefined||v===null||v===''||v===false);
+  S.logs[d]=S.logs[d]||{};
+  if(empty)delete S.logs[d][h.id];else S.logs[d][h.id]=v;
+  if(!Object.keys(S.logs[d]).length)delete S.logs[d];
+  enqueue('setLog',{habitId:h.id,date:d,value:empty?null:v});
+}
+function sleepHours(v){
+  if(!v||!v.bed||!v.wake)return 0;
+  const[b1,b2]=v.bed.split(':').map(Number),[w1,w2]=v.wake.split(':').map(Number);
+  let m=(w1*60+w2)-(b1*60+b2);if(m<=0)m+=1440;return m/60;
+}
+function done(h,d){
+  const v=val(h,d);
+  if(h.type==='check')return !!v;
+  if(h.type==='count')return (v||0)>=(h.target||1);
+  if(h.type==='sleep')return sleepHours(v)>=(h.target||7);
+  if(h.type==='diary')return !!(v&&String(v).trim());
+  return false;
+}
+function streaks(h){
+  const t=today();let cur=0,d=done(h,t)?t:shift(t,-1);
+  while(done(h,d)){cur++;d=shift(d,-1)}
+  const days=Object.keys(S.logs).sort();let best=0;
+  if(days.length){let run=0;for(let x=days[0];x<=t;x=shift(x,1)){if(done(h,x)){run++;best=Math.max(best,run)}else run=0}}
+  return {cur,best};
+}
+function rate(h,n){let c=0;const t=today();for(let i=0;i<n;i++)if(done(h,shift(t,-i)))c++;return Math.round(c/n*100)}
+const hById=id=>S.habits.find(x=>x.id===id);
+
+/* ───────── render ───────── */
+function render(){
+  const app=$('app');
+  if(!session){$('title').textContent='Habit Tracker';app.innerHTML=vAuth();paintSync();return}
+  document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('on',b.dataset.tab===tab));
+  app.innerHTML=tab==='today'?vToday():tab==='stats'?vStats():tab==='habits'?vHabits():vAccount();
+  $('title').textContent={today:'Today',stats:'Stats',habits:'Habits',account:'Account'}[tab];
+  paintSync();
+}
+
+function vToday(){
+  if(loading)return '<div class="card muted">Loading your habits…</div>';
+  const hs=active(),n=hs.filter(h=>done(h,date)).length;
+  const pretty=parse(date).toLocaleDateString(undefined,{weekday:'long',day:'numeric',month:'short'});
+  let h=`<div class="datebar"><button onclick="go(-1)">‹</button><div><b>${date===today()?'Today · ':''}${pretty}</b></div><button onclick="go(1)" ${date>=today()?'disabled':''}>›</button></div>
+  <div class="card"><div class="progress">${n}/${hs.length}</div><div class="muted">habits completed</div><div class="bar"><i style="width:${hs.length?n/hs.length*100:0}%"></i></div></div>`;
+  for(const x of hs){
+    const v=val(x,date),ok=done(x,date),st=streaks(x);
+    h+=`<div class="card"><div class="row"><div class="icon" style="background:${x.color}22">${x.icon}</div>
+    <div class="grow"><b>${esc(x.name)}</b><div class="muted">🔥 ${st.cur} day streak · best ${st.best}</div></div>`;
+    if(x.type==='check')h+=`<button class="check ${ok?'done':''}" onclick="toggle('${x.id}')">${ok?'✓':''}</button>`;
+    if(x.type==='count')h+=`<div class="row"><button onclick="bump('${x.id}',-1)">−</button><b style="min-width:62px;text-align:center">${fmtN(v||0)}<span class="muted"> /${fmtN(x.target)}</span></b><button onclick="bump('${x.id}',1)">+</button></div>`;
+    if(x.type==='sleep')h+=`<div class="muted"><b style="font-size:16px;color:var(--text)">${v?sleepHours(v).toFixed(1)+'h':'—'}</b><br>target ${fmtN(x.target)}h</div>`;
+    if(x.type==='diary')h+=`<div class="check ${ok?'done':''}">${ok?'✓':''}</div>`;
+    h+=`</div>`;
+    if(x.type==='count')h+=`<div class="bar"><i style="width:${Math.min(100,(v||0)/x.target*100)}%;background:${x.color}"></i></div><div class="muted" style="margin-top:6px">${esc(x.unit||'')}</div>`;
+    if(x.type==='sleep')h+=`<div class="sleepin"><div class="field"><label>Bedtime (previous night)</label><input type="time" value="${v&&v.bed||''}" onchange="sleepSet('${x.id}','bed',this.value)"></div><div class="field"><label>Wake time</label><input type="time" value="${v&&v.wake||''}" onchange="sleepSet('${x.id}','wake',this.value)"></div></div>`;
+    if(x.type==='diary')h+=`<textarea rows="4" placeholder="Write about your day, what you learned, how you feel…" oninput="diaryTyping('${x.id}','${date}',this.value)" onchange="diarySave('${x.id}','${date}',this.value,true)">${esc(v||'')}</textarea>`;
+    h+=`</div>`;
+  }
+  if(!hs.length)h+=`<div class="card muted">No habits yet — add some in the Habits tab.</div>`;
+  return h;
+}
+function go(n){date=shift(date,n);if(date>today())date=today();render()}
+function toggle(id){const h=hById(id);setVal(h,date,!val(h,date));render()}
+function bump(id,n){const h=hById(id);setVal(h,date,Math.max(0,Math.round(((val(h,date)||0)+n*(h.step||1))*100)/100));render()}
+function sleepSet(id,k,v){
+  const h=hById(id);const cur=Object.assign({bed:'',wake:''},val(h,date)||{});cur[k]=v;
+  setVal(h,date,(cur.bed||cur.wake)?cur:null);render();
+}
+function diaryTyping(id,d,t){clearTimeout(dTimer);dTimer=setTimeout(()=>diarySave(id,d,t,false),1200)}
+function diarySave(id,d,t,redraw){clearTimeout(dTimer);setVal(hById(id),d,t.trim()?t:null);if(redraw)render()}
+
+/* ───────── stats ───────── */
+function vStats(){
+  if(loading)return '<div class="card muted">Loading…</div>';
+  let h='';
+  for(const x of active()){
+    const st=streaks(x);
+    h+=`<div class="card"><div class="row"><div class="icon" style="background:${x.color}22">${x.icon}</div><b class="grow">${esc(x.name)}</b></div>
+    <div class="stats"><div class="stat"><b>${st.cur}</b><span class="muted">current streak</span></div><div class="stat"><b>${st.best}</b><span class="muted">best streak</span></div><div class="stat"><b>${rate(x,30)}%</b><span class="muted">last 30 days</span></div></div>
+    <div class="muted" style="margin-bottom:6px">Last 16 weeks</div>${heat(x)}`;
+    if(x.type==='sleep')h+=sleepChart(x);
+    if(x.type==='count')h+=barChart(x);
+    if(x.type==='diary')h+=diaryList(x);
+    h+=`</div>`;
+  }
+  return h||'<div class="card muted">Nothing to show yet.</div>';
+}
+function heat(x){
+  const t=parse(today());const start=new Date(t);start.setDate(t.getDate()-(15*7+t.getDay()));
+  let c='';for(let i=0;i<16*7+t.getDay()+1;i++){const d=new Date(start);d.setDate(start.getDate()+i);const s=fmt(d);
+    if(s>today())break;c+=`<i title="${s}" style="${done(x,s)?'background:'+x.color:''}"></i>`}
+  return `<div class="heat">${c}</div>`;
+}
+function svgBars(vals,labels,target,color,fmtV){
+  const W=300,H=90,max=Math.max(target*1.4,...vals,1),bw=W/vals.length;
+  let s=`<svg viewBox="0 0 ${W} ${H+16}" width="100%" style="margin-top:12px">`;
+  vals.forEach((v,i)=>{const h=v/max*H;s+=`<rect x="${i*bw+2}" y="${H-h}" width="${bw-4}" height="${h}" rx="3" fill="${v>=target?color:'var(--empty)'}"><title>${labels[i]}: ${fmtV(v)}</title></rect>`});
+  const ty=H-target/max*H;
+  s+=`<line x1="0" x2="${W}" y1="${ty}" y2="${ty}" stroke="var(--muted)" stroke-dasharray="3 3"/><text x="0" y="${H+12}" font-size="9" fill="var(--muted)">${labels[0]}</text><text x="${W}" y="${H+12}" font-size="9" text-anchor="end" fill="var(--muted)">${labels[labels.length-1]}</text></svg>`;
+  return s;
+}
+function lastN(n){return Array.from({length:n},(_,i)=>shift(today(),-(n-1-i)))}
+function sleepChart(x){
+  const ds=lastN(14),hrs=ds.map(d=>sleepHours(val(x,d)));
+  const logged=ds.filter(d=>val(x,d)).length;
+  const bedMins=ds.map(d=>val(x,d)).filter(v=>v&&v.bed).map(v=>{const[a,b]=v.bed.split(':').map(Number);let m=a*60+b;if(m<720)m+=1440;return m});
+  let cons='';
+  if(bedMins.length>2){
+    const mean=bedMins.reduce((a,b)=>a+b)/bedMins.length;
+    const sd=Math.sqrt(bedMins.reduce((a,b)=>a+(b-mean)**2,0)/bedMins.length);
+    const got=hrs.filter(h=>h);const avg=got.reduce((a,b)=>a+b,0)/Math.max(1,got.length);
+    cons=`<div class="muted" style="margin-top:8px">Avg sleep ${avg.toFixed(1)}h · bedtime varies ±${Math.round(sd)} min (${logged}/14 nights logged)</div>`;
+  }
+  return `<div class="muted" style="margin-top:12px">Sleep hours, last 14 days (dashed = target)</div>`+svgBars(hrs,ds.map(d=>d.slice(5)),x.target,x.color,v=>v.toFixed(1)+'h')+cons;
+}
+function barChart(x){
+  const ds=lastN(14),v=ds.map(d=>val(x,d)||0);
+  return `<div class="muted" style="margin-top:12px">${esc(x.unit||'count')}, last 14 days (dashed = target)</div>`+svgBars(v,ds.map(d=>d.slice(5)),x.target,x.color,n=>fmtN(n)+' '+(x.unit||''));
+}
+function diaryList(x){
+  const ds=Object.keys(S.logs).filter(d=>val(x,d)).sort().reverse().slice(0,5);
+  if(!ds.length)return '';
+  return `<div class="muted" style="margin:12px 0 6px">Recent entries</div>`+ds.map(d=>{const t=String(val(x,d));
+    return `<div class="user"><div class="muted">${d}</div><div style="white-space:pre-wrap;font-size:14px">${esc(t.slice(0,300))}${t.length>300?'…':''}</div></div>`}).join('');
+}
+
+/* ───────── manage habits ───────── */
+function vHabits(){
+  if(loading)return '<div class="card muted">Loading…</div>';
+  let h=`<button class="primary" onclick="edit('new')" style="width:100%">+ Add habit</button>`;
+  if(editing)h+=form();
+  for(const x of S.habits){
+    const desc={check:'Yes / No',count:'Count · target '+fmtN(x.target)+' '+(x.unit||''),sleep:'Sleep · target '+fmtN(x.target)+'h',diary:'Daily journal entry'}[x.type];
+    h+=`<div class="card row"><div class="icon" style="background:${x.color}22">${x.icon}</div><div class="grow"><b>${esc(x.name)}</b>${x.archived?' <span class="muted">(archived)</span>':''}<div class="muted">${desc}</div></div>
+    <button onclick="edit('${x.id}')">Edit</button></div>`;
+  }
+  const missing=PRESETS.map((p,i)=>({p,i})).filter(o=>!S.habits.some(h=>h.name===o.p.name));
+  if(missing.length)h+=`<div class="card"><b>Quick add</b><div class="row" style="flex-wrap:wrap;margin-top:10px">${missing.map(o=>`<button onclick="quickAdd(${o.i})">${o.p.icon} ${esc(o.p.name)}</button>`).join('')}</div></div>`;
+  return h;
+}
+function form(){
+  const x=draft;
+  return `<div class="card"><b>${editing==='new'?'New habit':'Edit habit'}</b>
+  <div class="two"><div class="field"><label>Name</label><input value="${esc(x.name)}" oninput="draft.name=this.value"></div><div class="field"><label>Icon (emoji)</label><input value="${esc(x.icon)}" oninput="draft.icon=this.value"></div></div>
+  <div class="field"><label>Type</label><select onchange="setType(this.value)">
+    <option value="check" ${x.type==='check'?'selected':''}>Yes / No (exercise, brahmacharya…)</option>
+    <option value="count" ${x.type==='count'?'selected':''}>Count (pages, minutes, hours…)</option>
+    <option value="sleep" ${x.type==='sleep'?'selected':''}>Sleep (bed + wake time)</option>
+    <option value="diary" ${x.type==='diary'?'selected':''}>Diary / journal (daily text)</option></select></div>
+  ${x.type==='count'?`<div class="three"><div class="field"><label>Daily target</label><input type="number" step="0.5" min="0.5" value="${x.target}" oninput="draft.target=parseFloat(this.value)||1"></div><div class="field"><label>Unit</label><input value="${esc(x.unit||'')}" placeholder="pages" oninput="draft.unit=this.value"></div><div class="field"><label>+/− step</label><input type="number" step="0.25" min="0.25" value="${x.step||1}" oninput="draft.step=parseFloat(this.value)||1"></div></div>`:''}
+  ${x.type==='sleep'?`<div class="field"><label>Target sleep (hours)</label><input type="number" step="0.5" min="1" value="${x.target}" oninput="draft.target=parseFloat(this.value)||7"></div>`:''}
+  <div class="field"><label>Colour</label><div class="row">${COLORS.map(c=>`<button onclick="draft.color='${c}';render()" style="width:28px;height:28px;padding:0;border-radius:50%;background:${c};border:${c===x.color?'3px solid var(--text)':'1px solid var(--line)'}"></button>`).join('')}</div></div>
+  <div class="row" style="margin-top:12px"><button class="primary grow" onclick="saveHabit()">Save</button><button onclick="edit(null)">Cancel</button>
+  ${editing!=='new'?`<button onclick="archiveHabit()">${x.archived?'Restore':'Archive'}</button><button class="danger" onclick="delHabit()">Delete</button>`:''}</div></div>`;
+}
+function edit(id){
+  editing=id;
+  draft=!id?null:id==='new'?{name:'',icon:'⭐',type:'check',target:1,unit:'',step:1,color:COLORS[0],archived:false}:Object.assign({},hById(id));
+  render();
+}
+function setType(t){const prev=draft.type;draft.type=t;if(t==='sleep')draft.target=7;else if(prev==='sleep')draft.target=1;render()}
+function saveHabit(){
+  if(!draft.name.trim())return toast('Give the habit a name');
+  const h=Object.assign({},draft,{id:editing==='new'?uid():editing,name:draft.name.trim(),icon:draft.icon||'⭐'});
+  const i=S.habits.findIndex(x=>x.id===h.id);
+  if(i>=0)S.habits[i]=h;else S.habits.push(h);
+  enqueue('saveHabit',{habit:h});editing=null;draft=null;render();
+}
+function archiveHabit(){const h=hById(editing);h.archived=!h.archived;enqueue('saveHabit',{habit:h});editing=null;draft=null;render()}
+function delHabit(){
+  if(!confirm('Delete this habit and all its history?'))return;
+  const id=editing;S.habits=S.habits.filter(h=>h.id!==id);
+  for(const d in S.logs){delete S.logs[d][id];if(!Object.keys(S.logs[d]).length)delete S.logs[d]}
+  enqueue('deleteHabit',{habitId:id});editing=null;draft=null;render();
+}
+function quickAdd(i){const h=Object.assign({id:uid(),archived:false,step:1},PRESETS[i]);S.habits.push(h);enqueue('saveHabit',{habit:h});render()}
+
+/* ───────── account & admin ───────── */
+function vAccount(){
+  let h=`<div class="card"><div class="row"><div class="icon" style="background:var(--empty)">👤</div><div class="grow"><b>${esc(session.name||'')}</b><div class="muted">@${esc(session.userId)} · ${session.role==='admin'?'admin':'member'}</div></div></div>
+  <div class="two" style="margin-top:12px"><button onclick="syncNow()">⟳ Sync now</button><button class="danger" onclick="logout()">Log out</button></div></div>
+  <div class="card"><b>Change password</b>
+    <div class="field"><label>Current password</label><input id="cp_old" type="password" autocomplete="current-password"></div>
+    <div class="field"><label>New password</label><input id="cp_new" type="password" autocomplete="new-password"></div>
+    <button onclick="changePw()">Update password</button></div>
+  <div class="card"><b>Backup & import</b><div class="muted" style="margin:6px 0 10px">Your data is stored in your account. Export a copy any time; importing merges and never overwrites existing entries.</div>
+    <div class="two"><button onclick="exportData()">⬇ Export JSON</button><button onclick="$('imp').click()">⬆ Import JSON</button></div>
+    <input id="imp" type="file" accept=".json" class="hidden" onchange="importFile(this.files[0])">
+    ${hasOld()?`<button style="width:100%;margin-top:8px" onclick="importOldClick()">Import data from the earlier version on this device</button>`:''}</div>`;
+  if(session.role==='admin')h+=vAdmin();
+  return h;
+}
+function vAdmin(){
+  let h=`<div class="card"><b>Admin · users</b>`;
+  if(adminUsers===null)h+=`<div class="muted" style="margin-top:8px">Loading…</div>`;
+  else h+=adminUsers.map(u=>`<div class="user row"><div class="grow"><b>${esc(u.name)}</b> <span class="muted">@${esc(u.userId)} · ${esc(u.role)}</span></div>
+    <button onclick="adminReset('${esc(u.userId)}')">Reset pw</button>${u.userId===session.userId?'':`<button class="danger" onclick="adminDelete('${esc(u.userId)}')">Delete</button>`}</div>`).join('');
+  h+=`<div style="border-top:1px solid var(--line);margin-top:10px;padding-top:6px"><b>Add a user</b>
+    <div class="two"><div class="field"><label>User ID</label><input id="ad_id" autocapitalize="none"></div><div class="field"><label>Name</label><input id="ad_name"></div></div>
+    <div class="two"><div class="field"><label>Password</label><input id="ad_pw" type="text" autocomplete="off"></div><div class="field"><label>Role</label><select id="ad_role"><option value="user">Member</option><option value="admin">Admin</option></select></div></div>
+    <button class="primary" onclick="adminCreate()">Create user</button></div></div>`;
+  return h;
+}
+async function loadUsers(){
+  try{adminUsers=await api('admin_listUsers')}catch(e){adminUsers=[];toast(e.message)}
+  if(session&&tab==='account')render();
+}
+async function adminCreate(){
+  try{
+    await api('admin_createUser',{userId:$('ad_id').value,name:$('ad_name').value,password:$('ad_pw').value,role:$('ad_role').value});
+    toast('User created');await loadUsers();
+  }catch(e){toast(e.message)}
+}
+async function adminReset(id){
+  const pw=prompt('New password for @'+id+' (min 6 characters):');if(!pw)return;
+  try{await api('admin_resetPassword',{userId:id,password:pw});toast('Password reset')}catch(e){toast(e.message)}
+}
+async function adminDelete(id){
+  if(!confirm('Delete @'+id+' and ALL their data? This cannot be undone.'))return;
+  try{await api('admin_deleteUser',{userId:id});toast('User deleted');await loadUsers()}catch(e){toast(e.message)}
+}
+async function changePw(){
+  try{
+    const d=await api('changePassword',{oldPassword:$('cp_old').value,newPassword:$('cp_new').value});
+    session.token=d.token;lsSet(SESSION_KEY,session);$('cp_old').value='';$('cp_new').value='';toast('Password updated');
+  }catch(e){toast(e.message)}
+}
+async function syncNow(){setSync('saving');await flush();await pull();toast(syncState==='saved'?'Up to date':'Offline — will sync when back online')}
+function exportData(){
+  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify({habits:S.habits,logs:S.logs},null,1)],{type:'application/json'}));
+  a.download='habits-backup-'+today()+'.json';a.click();
+}
+async function importFile(f){
+  if(!f)return;
+  try{
+    const d=JSON.parse(await f.text());if(!Array.isArray(d.habits)||typeof d.logs!=='object')throw new Error('Not a backup file');
+    const r=await api('importData',{habits:d.habits,logs:d.logs});await pull();toast('Imported '+r.habits+' habits, '+r.logs+' entries');
+  }catch(e){toast('Import failed: '+e.message)}
+}
+async function importOldClick(){
+  try{const r=await importOld();await pull();toast('Imported '+r.habits+' habits, '+r.logs+' entries')}catch(e){toast('Import failed: '+e.message)}
+}
+
+/* ───────── boot ───────── */
+document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>{
+  tab=b.dataset.tab;editing=null;draft=null;render();
+  if(tab==='account'&&session.role==='admin'&&adminUsers===null)loadUsers();
+});
+session=lsGet(SESSION_KEY);
+if(session&&session.token)startApp(false);else{session=null;render()}
+</script>
+</body>
+</html>
